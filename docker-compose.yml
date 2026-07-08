@@ -1,0 +1,55 @@
+version: '3'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.2.1
+    hostname: zookeeper
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.2.1
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  # ADDED GOTENBERG HERE
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: gotenberg
+    hostname: gotenberg
+    # Permissions to prevent Chromium startup crashes
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    ports:
+      - "8081:3000" # Map host 8081 to container 8080
+    restart: always
+    # Chromium needs shared memory to render complex HTML/Images
+    shm_size: '2gb' 
+    environment:
+      - GOTENBERG_CHROMIUM_START_TIMEOUT=60s
+      - GOTENBERG_CHROMIUM_AUTO_START=true
+      # Optional: Helps if you have many concurrent requests
+      - GOTENBERG_LOG_LEVEL=info
+      - GOTENBERG_CHROMIUM_DISABLE_SANDBOX=true
+    command:
+      - "gotenberg"
+      - "--api-timeout=300s"
+      - "--api-start-timeout=600s"
+      - "--chromium-start-timeout=90s"

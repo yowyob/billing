@@ -1,0 +1,389 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1-create-user-organization-permissions
+      author: refactoring-agent
+      comments: Create user_organization_permissions table
+      changes:
+        - createTable:
+            tableName: user_organization_permissions
+            remarks: Junction table for fine-grained permissions
+            columns:
+              - column:
+                  name: id
+                  type: uuid
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: user_organization_id
+                  type: uuid
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_user_org_perm_user_org
+                    references: user_organizations(id)
+                    deleteCascade: true
+              - column:
+                  name: permission
+                  type: varchar(50)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: granted_at
+                  type: timestamp
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: granted_by
+                  type: uuid
+                  remarks: User who granted this permission
+              - column:
+                  name: expires_at
+                  type: timestamp
+                  remarks: Optional expiration date for temporary permissions
+
+        - addUniqueConstraint:
+            tableName: user_organization_permissions
+            columnNames: user_organization_id, permission
+            constraintName: uk_user_org_permission
+
+        - createIndex:
+            tableName: user_organization_permissions
+            indexName: idx_user_org_perm_user_org
+            columns:
+              - column:
+                  name: user_organization_id
+
+        - createIndex:
+            tableName: user_organization_permissions
+            indexName: idx_user_org_perm_permission
+            columns:
+              - column:
+                  name: permission
+  - changeSet:
+      id: 2-drop-legacy-tiers-tables
+      author: refactoring-agent
+      comments: Drop legacy clients and fournisseurs tables if they exist
+      changes:
+        - sql:
+            sql: "DROP TABLE IF EXISTS clients; DROP TABLE IF EXISTS fournisseurs;"
+
+  - changeSet:
+      id: 3-add-agency-id-to-factures
+      author: dev
+      changes:
+        - addColumn:
+            tableName: factures
+            columns:
+              - column:
+                  name: agency_id
+                  type: uuid
+                  constraints:
+                    nullable: true
+
+  - changeSet:
+      id: 4-add-agency-id-to-devis
+      author: dev
+      changes:
+        - addColumn:
+            tableName: devis
+            columns:
+              - column:
+                  name: agency_id
+                  type: uuid
+                  constraints:
+                    nullable: true
+
+  - changeSet:
+      id: 5-add-agency-id-to-paiements
+      author: dev
+      changes:
+        - addColumn:
+            tableName: paiements
+            columns:
+              - column:
+                  name: agency_id
+                  type: uuid
+                  constraints:
+                    nullable: true
+
+  - changeSet:
+      id: 6-add-agency-id-to-notes-credit
+      author: dev
+      changes:
+        - addColumn:
+            tableName: notes_credit
+            columns:
+              - column:
+                  name: agency_id
+                  type: uuid
+                  constraints:
+                    nullable: true
+
+  - changeSet:
+      id: 7-add-agency-id-to-taxes
+      author: dev
+      changes:
+        - addColumn:
+            tableName: taxes
+            columns:
+              - column:
+                  name: agency_id
+                  type: uuid
+                  constraints:
+                    nullable: true
+
+  - changeSet:
+      id: 8-add-agency-id-to-journals
+      author: dev
+      changes:
+        - addColumn:
+            tableName: journals
+            columns:
+              - column:
+                  name: agency_id
+                  type: uuid
+                  constraints:
+                    nullable: true
+
+  - changeSet:
+      id: 9-add-agency-id-to-factures-proforma
+      author: dev
+      changes:
+        - addColumn:
+            tableName: factures_proforma
+            columns:
+              - column:
+                  name: agency_id
+                  type: uuid
+                  constraints:
+                    nullable: true
+
+  - changeSet:
+      id: 10-create-back-orders-table
+      author: dev
+      changes:
+        - createTable:
+            tableName: back_orders
+            columns:
+              - column:
+                  name: id_back_order
+                  type: uuid
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: numero_back_order
+                  type: varchar(100)
+              - column:
+                  name: id_bon_achat
+                  type: uuid
+              - column:
+                  name: numero_bon_achat
+                  type: varchar(100)
+              - column:
+                  name: id_fournisseur
+                  type: uuid
+              - column:
+                  name: nom_fournisseur
+                  type: varchar(255)
+              - column:
+                  name: lignes
+                  type: jsonb
+              - column:
+                  name: date_creation
+                  type: timestamp
+              - column:
+                  name: date_livraison_prevue
+                  type: timestamp
+              - column:
+                  name: date_systeme
+                  type: timestamp
+              - column:
+                  name: statut
+                  type: varchar(50)
+              - column:
+                  name: notes
+                  type: text
+              - column:
+                  name: organization_id
+                  type: uuid
+                  constraints:
+                    nullable: false
+              - column:
+                  name: agency_id
+                  type: uuid
+              - column:
+                  name: created_by
+                  type: uuid
+              - column:
+                  name: created_at
+                  type: timestamp
+                  defaultValueComputed: CURRENT_TIMESTAMP
+              - column:
+                  name: updated_at
+                  type: timestamp
+                  defaultValueComputed: CURRENT_TIMESTAMP
+        - createIndex:
+            tableName: back_orders
+            indexName: idx_back_orders_org
+            columns:
+              - column:
+                  name: organization_id
+        - createIndex:
+            tableName: back_orders
+            indexName: idx_back_orders_agency
+            columns:
+              - column:
+                  name: agency_id
+        - createIndex:
+            tableName: back_orders
+            indexName: idx_back_orders_bon_achat
+            columns:
+              - column:
+                  name: id_bon_achat
+
+  - changeSet:
+      id: 12-add-partial-delivery-fields-to-bons-livraison
+      author: dev
+      changes:
+        - addColumn:
+            tableName: bons_livraison
+            columns:
+              - column:
+                  name: id_sale_order
+                  type: uuid
+              - column:
+                  name: sale_order_number
+                  type: varchar(100)
+              - column:
+                  name: is_partial
+                  type: boolean
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+
+  - changeSet:
+      id: 11-create-ui-permissions-table
+      author: dev
+      changes:
+        - createTable:
+            tableName: ui_permissions
+            columns:
+              - column:
+                  name: id
+                  type: uuid
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: organization_id
+                  type: uuid
+                  constraints:
+                    nullable: false
+              - column:
+                  name: agency_id
+                  type: uuid
+              - column:
+                  name: seller_id
+                  type: uuid
+                  constraints:
+                    nullable: false
+              - column:
+                  name: sales_quotations
+                  type: boolean
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: sales_proforma_invoices
+                  type: boolean
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: sales_sales_orders
+                  type: boolean
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: sales_invoices
+                  type: boolean
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: sales_delivery_notes
+                  type: boolean
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: sales_credit_notes
+                  type: boolean
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: sales_store_credit
+                  type: boolean
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: sales_back_orders
+                  type: boolean
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: purchasing_purchase_orders
+                  type: boolean
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: purchasing_goods_rns
+                  type: boolean
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: purchasing_supplier_invoice
+                  type: boolean
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: journals_quotations
+                  type: boolean
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: timestamp
+                  defaultValueComputed: CURRENT_TIMESTAMP
+              - column:
+                  name: updated_at
+                  type: timestamp
+                  defaultValueComputed: CURRENT_TIMESTAMP
+        - createIndex:
+            tableName: ui_permissions
+            indexName: idx_ui_permissions_seller
+            columns:
+              - column:
+                  name: seller_id
+        - createIndex:
+            tableName: ui_permissions
+            indexName: idx_ui_permissions_org
+            columns:
+              - column:
+                  name: organization_id
+        - createIndex:
+            tableName: ui_permissions
+            indexName: idx_ui_permissions_agency
+            columns:
+              - column:
+                  name: agency_id
