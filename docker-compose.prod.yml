@@ -32,12 +32,14 @@ services:
     logging: { driver: "json-file", options: { max-size: "50m", max-file: "5" } }
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.billing.rule=Host(`billing.yowyob.com`)"
-      - "traefik.http.routers.billing.entrypoints=websecure"
-      - "traefik.http.routers.billing.tls=true"
-      - "traefik.http.routers.billing.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.billing.priority=100"
-      - "traefik.http.services.billing.loadbalancer.server.port=8080"
+      - "traefik.http.routers.billing-api.rule=Host(`billing.yowyob.com`) && PathPrefix(`/billing-api`)"
+      - "traefik.http.routers.billing-api.entrypoints=websecure"
+      - "traefik.http.routers.billing-api.tls=true"
+      - "traefik.http.routers.billing-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.billing-api.priority=100"
+      - "traefik.http.middlewares.billing-api-strip.stripprefix.prefixes=/billing-api"
+      - "traefik.http.routers.billing-api.middlewares=billing-api-strip"
+      - "traefik.http.services.billing-api.loadbalancer.server.port=8080"
       - "traefik.docker.network=yowyob"
     depends_on:
       billing-db: { condition: service_healthy }
