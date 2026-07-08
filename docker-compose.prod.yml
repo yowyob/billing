@@ -17,6 +17,8 @@ services:
       DB_USERNAME: "billing"
       DB_PASSWORD: "${BILLING_DB_PASSWORD:?BILLING_DB_PASSWORD requis dans .env}"
       SPRING_KAFKA_BOOTSTRAP_SERVERS: "yowyob-shared-kafka:9092"
+      SPRING_DATA_REDIS_HOST: "billing-redis"
+      SPRING_DATA_REDIS_PORT: "6379"
       KERNEL_BASE_URL: "https://kernel-core.yowyob.com"
       KERNEL_CLIENT_ID: "billing-backend"
       KERNEL_API_KEY: "${BILLING_KERNEL_API_KEY:?BILLING_KERNEL_API_KEY requis dans .env}"
@@ -39,6 +41,7 @@ services:
       - "traefik.docker.network=yowyob"
     depends_on:
       billing-db: { condition: service_healthy }
+      billing-redis: { condition: service_healthy }
     networks: [yowyob, billing-net]
   billing-db:
     image: postgres:16-alpine
@@ -55,8 +58,17 @@ services:
       timeout: 5s
       retries: 12
     networks: [billing-net]
+  billing-redis:
+    image: redis:7-alpine
+    container_name: billing-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [billing-redis-data:/data]
+    healthcheck: { test: ["CMD","redis-cli","ping"], interval: 10s, timeout: 5s, retries: 5 }
+    networks: [billing-net]
 volumes:
   billing-db-data:
+  billing-redis-data:
 networks:
   yowyob: { external: true, name: yowyob }
   billing-net: { name: billing-net }
