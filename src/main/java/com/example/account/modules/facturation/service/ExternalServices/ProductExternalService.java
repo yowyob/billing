@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.apache.hc.core5.http.HttpStatus;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +32,8 @@ import java.util.UUID;
 public class ProductExternalService {
 
     private final WebClient.Builder webClientBuilder;
+    @Qualifier("businessCoreWebClient")
+    private final WebClient businessCoreWebClient;
     private final ProductMapper productMapper;
     private final ProductRepository productRepository;
     private final RedisService redisService;
@@ -50,7 +53,7 @@ public class ProductExternalService {
 
     public Mono<ProductResponse> fetchAndSaveProductById(UUID productId) {
         String url = String.format("http://%s/api/products/%s", comOpsUrl, productId);
-        return webClientBuilder.build()
+        return businessCoreWebClient
                 .get()
                 .uri(url)
                 .retrieve()
@@ -66,7 +69,7 @@ public class ProductExternalService {
     public Flux<ProductResponse> getProductsByOrganization(UUID organizationId) {
         String url = String.format("http://%s/api/products/organizations/%s", comOpsUrl, organizationId);
 
-        return webClientBuilder.build()
+        return businessCoreWebClient
                 .get()
                 .uri(url)
                 .retrieve()
