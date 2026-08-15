@@ -30,12 +30,6 @@ public class KernelWebClientConfig {
     @Value("${comops.kernel.tenant-id}")
     private String tenantId;
 
-    @Value("${comops.business-core.client-id:billing-backend}")
-    private String businessCoreClientId;
-
-    @Value("${comops.business-core.api-key:}")
-    private String businessCoreApiKey;
-
     @Bean
     @Qualifier("kernelWebClient")
     public WebClient kernelWebClient(WebClient.Builder builder) {
@@ -47,18 +41,6 @@ public class KernelWebClientConfig {
                 .filter(injectBearerToken())
                 .filter(injectOrganizationId())
                 .build();
-    }
-
-    /** WebClient dédié à Business Core, qui utilise une authentification X-BC-* distincte. */
-    @Bean
-    @Qualifier("businessCoreWebClient")
-    public WebClient businessCoreWebClient(WebClient.Builder builder) {
-        WebClient.Builder configured = builder
-                .defaultHeader("X-BC-Client-Id", businessCoreClientId);
-        if (businessCoreApiKey != null && !businessCoreApiKey.isBlank()) {
-            configured.defaultHeader("X-BC-Api-Key", businessCoreApiKey);
-        }
-        return configured.build();
     }
 
     /**
