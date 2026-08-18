@@ -2,6 +2,7 @@ package com.example.account.modules.facturation.service;
 
 import com.example.account.modules.facturation.dto.request.ExternalRequest.EmailRequest;
 import com.example.account.modules.facturation.domain.model.Devis;
+import com.example.account.modules.notification.service.EmailSenderService;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +15,8 @@ import org.thymeleaf.context.Context;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.util.Map;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -22,7 +25,10 @@ public class EmailService {
     private final JavaMailSender mailSender;
     private final SpringTemplateEngine templateEngine; // Use the Spring-specific version
     private final PdfGeneratorService pdfGeneratorService;
+    private final EmailSenderService emailSenderService;
 
+   // Stays on direct SMTP: the Kernel notification-core /deliveries endpoint has no
+   // attachment support, and this email needs the PDF quotation attached.
    public Mono<Void> sendQuotation(Devis devis, EmailRequest emailRequest,String token) {
 
     return Mono.fromCallable(() -> {
@@ -65,4 +71,54 @@ public class EmailService {
     }).subscribeOn(Schedulers.boundedElastic())
       .then();
 }
+
+    /**
+     * "A document is waiting for you" notification for the login-based client
+     * portal (distinct from sendQuotation's one-off token-link email, which
+     * needs no login at all). No PDF attachment — the client views/prints the
+     * document once they're inside the portal.
+     */
+    public Mono<Void> sendPortalDocumentNotification(String recipientEmail, String recipientName,
+                                                       String documentType, String documentRef, String loginUrl) {
+        return Mono.fromCallable(() -> {
+            log.info("Sending portal notification for {} {} to {}", documentType, documentRef, recipientEmail);
+
+            Context context = new Context();
+            context.setVariable("recipientName", recipientName);
+            context.setVariable("documentType", documentType);
+            context.setVariable("documentRef", documentRef);
+            context.setVariable("loginUrl", loginUrl);
+
+            String emailContent = templateEngine.process("portal-document-notification", context);
+            String subject = documentType + " " + documentRef + " — a document is ready for your review";
+            return Map.entry(subject, emailContent);
+        }).subscribeOn(Schedulers.boundedElastic())
+          .flatMap(rendered -> emailSenderService.sendEmail(recipientEmail, rendered.getKey(), rendered.getValue()))
+          .doOnSuccess(v -> log.info("Portal notification sent for {} {}", documentType, documentRef));
+    }
+
+    /**
+     * Notifies a seller they've been granted a permission (owner/editor/viewer)
+     * on a document via the "Share" action.
+     */
+    public Mono<Void> sendDocPermissionInviteNotification(String recipientEmail, String recipientName,
+                                                            String sharedByName, String permissionLevel,
+                                                            String docLabel, String loginUrl) {
+        return Mono.fromCallable(() -> {
+            log.info("Sending doc-permission invite ({}) for {} to {}", permissionLevel, docLabel, recipientEmail);
+
+            Context context = new Context();
+            context.setVariable("recipientName", recipientName);
+            context.setVariable("sharedByName", sharedByName);
+            context.setVariable("permissionLevel", permissionLevel);
+            context.setVariable("docLabel", docLabel);
+            context.setVariable("loginUrl", loginUrl);
+
+            String emailContent = templateEngine.process("doc-permission-invite", context);
+            String subject = "You've been invited as " + permissionLevel + " on " + docLabel;
+            return Map.entry(subject, emailContent);
+        }).subscribeOn(Schedulers.boundedElastic())
+          .flatMap(rendered -> emailSenderService.sendEmail(recipientEmail, rendered.getKey(), rendered.getValue()))
+          .doOnSuccess(v -> log.info("Doc-permission invite sent for {}", docLabel));
+    }
 }

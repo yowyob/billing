@@ -4,6 +4,7 @@ import com.example.account.modules.facturation.dto.request.FactureCreateRequest;
 import com.example.account.modules.facturation.dto.response.FactureResponse;
 import com.example.account.modules.facturation.model.enums.StatutFacture;
 import com.example.account.modules.facturation.domain.port.input.FactureUseCase;
+import com.example.account.modules.facturation.service.Journals.FactureJournalService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -18,6 +19,7 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -28,6 +30,7 @@ import java.util.UUID;
 public class FactureController {
 
     private final FactureUseCase factureService;
+    private final FactureJournalService factureJournalService;
 
     @PostMapping
     @Operation(summary = "Créer une nouvelle facture")
@@ -65,6 +68,14 @@ public class FactureController {
                     log.error("Erreur lors de la comptabilisation: {}", e.getMessage());
                     return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).build());
                 });
+    }
+
+    @PutMapping("/{factureId}/accounted")
+    @Operation(summary = "Marquer une facture comme comptabilisée (callback du backend comptable, via sales-core)")
+    public Mono<ResponseEntity<Void>> markFactureAccounted(@PathVariable UUID factureId) {
+        log.info("Marquage de la facture {} comme comptabilisée", factureId);
+        return factureService.markFactureAccounted(factureId)
+                .thenReturn(ResponseEntity.ok().<Void>build());
     }
 
     @GetMapping("/numero/{numeroFacture}")
@@ -127,6 +138,14 @@ public class FactureController {
                 .thenReturn(ResponseEntity.noContent().build());
     }
 
+    @PostMapping("/{factureId}/send-to-portal")
+    @Operation(summary = "Envoyer la facture au client via le portail (login requis)")
+    public Mono<ResponseEntity<Void>> sendToPortal(@PathVariable UUID factureId) {
+        log.info("Requête d'envoi de la facture vers le portail: {}", factureId);
+        return factureService.sendToPortal(factureId)
+                .thenReturn(ResponseEntity.ok().build());
+    }
+
     @PutMapping("/{factureId}/marquer-paye")
     @Operation(summary = "Marquer une facture comme payée")
     public Mono<ResponseEntity<FactureResponse>> marquerCommePaye(@PathVariable UUID factureId) {
@@ -167,4 +186,42 @@ public class FactureController {
         return factureService.getFacturesByAgencyId(agencyId);
     }
 
+    @GetMapping("/seller/{sellerId}")
+    @Operation(summary = "Récupérer les factures créées par un vendeur")
+    public Flux<FactureResponse> getFacturesBySellerId(@PathVariable UUID sellerId) {
+        log.info("Requête de récupération des factures par vendeur: {}", sellerId);
+        return factureService.getFacturesBySellerId(sellerId);
+    }
+
+    @GetMapping("/agence/{agencyId}/enriched")
+    @Operation(summary = "Récupérer les factures d'une agence, chacune avec sa session (POS/SALES) intégrée")
+    public Flux<FactureResponse> getFacturesByAgencyEnriched(@PathVariable UUID agencyId, @RequestParam UUID organizationId) {
+        log.info("Requête de récupération des factures enrichies par agence: {} (org: {})", agencyId, organizationId);
+        return factureJournalService.enrichFacturesByAgency(agencyId, organizationId);
+    }
+
+    @GetMapping("/organisation/{organizationId}/enriched")
+    @Operation(summary = "Récupérer toutes les factures d'une organisation, chacune avec sa session (POS/SALES) intégrée")
+    public Flux<FactureResponse> getFacturesByOrganizationEnriched(@PathVariable UUID organizationId) {
+        log.info("Requête de récupération des factures enrichies par organisation: {}", organizationId);
+        return factureJournalService.enrichFacturesByOrganization(organizationId);
+    }
+
+    @GetMapping("/sales/{factureId}")
+    @Operation(summary = "Get client invoice formatted for accounting gateway")
+    public Mono<ResponseEntity<Map<String, Object>>> getAccountingSaleFacture(@PathVariable UUID factureId) {
+        log.info("Requesting accounting gateway format (sale) for invoice: {}", factureId);
+        return factureService.getAccountingSaleFacture(factureId)
+                .map(ResponseEntity::ok)
+                .defaultIfEmpty(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/purchases/{factureId}")
+    @Operation(summary = "Get supplier invoice formatted for accounting gateway")
+    public Mono<ResponseEntity<Map<String, Object>>> getAccountingPurchaseFacture(@PathVariable UUID factureId) {
+        log.info("Requesting accounting gateway format (purchase) for invoice: {}", factureId);
+        return factureService.getAccountingPurchaseFacture(factureId)
+                .map(ResponseEntity::ok)
+                .defaultIfEmpty(ResponseEntity.notFound().build());
+    }
 }

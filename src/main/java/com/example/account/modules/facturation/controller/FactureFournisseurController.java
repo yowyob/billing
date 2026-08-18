@@ -54,4 +54,34 @@ public class FactureFournisseurController {
     public Flux<FactureFournisseurResponse> getByAgencyId(@PathVariable UUID agencyId) {
         return factureFournisseurService.getByAgencyId(agencyId);
     }
+
+    @GetMapping("/seller/{sellerId}")
+    public Flux<FactureFournisseurResponse> getBySellerId(@PathVariable UUID sellerId) {
+        return factureFournisseurService.getBySellerId(sellerId);
+    }
+
+    @PostMapping("/{id}/send-to-portal")
+    public Mono<ResponseEntity<Void>> sendToPortal(@PathVariable UUID id) {
+        log.info("Requête d'envoi de la facture fournisseur vers le portail: {}", id);
+        return factureFournisseurService.sendToPortal(id)
+                .thenReturn(ResponseEntity.ok().build());
+    }
+
+    @GetMapping("/account/{id}")
+    public Mono<ResponseEntity<Void>> accountFacture(@PathVariable UUID id) {
+        log.info("Comptabiliser la facture fournisseur: {}", id);
+        return factureFournisseurService.accountFacture(id)
+                .thenReturn(ResponseEntity.ok().<Void>build())
+                .onErrorResume(e -> {
+                    log.error("Erreur lors de la comptabilisation: {}", e.getMessage());
+                    return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).build());
+                });
+    }
+
+    @PutMapping("/{id}/accounted")
+    public Mono<ResponseEntity<Void>> markAccounted(@PathVariable UUID id) {
+        log.info("Marquage de la facture fournisseur {} comme comptabilisée", id);
+        return factureFournisseurService.markAccounted(id)
+                .thenReturn(ResponseEntity.ok().<Void>build());
+    }
 }

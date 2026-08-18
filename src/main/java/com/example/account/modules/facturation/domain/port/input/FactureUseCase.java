@@ -10,13 +10,18 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Map;
 import java.util.UUID;
 
 public interface FactureUseCase {
+    Mono<Map<String, Object>> getAccountingSaleFacture(UUID factureId);
+    Mono<Map<String, Object>> getAccountingPurchaseFacture(UUID factureId);
+
     Mono<FactureResponse> createFacture(FactureCreateRequest request);
     Mono<FactureResponse> updateFacture(UUID factureId, FactureCreateRequest request);
     Mono<FactureResponse> getFactureById(UUID factureId);
     Mono<Void> accountFacture(UUID factureId);
+    Mono<Void> markFactureAccounted(UUID factureId);
     Mono<FactureResponse> getFactureByNumero(String numeroFacture);
     Flux<FactureResponse> getAllFactures();
     Flux<FactureResponse> getAllFactures(Pageable pageable);
@@ -31,4 +36,6 @@ public interface FactureUseCase {
     Mono<Long> countByEtat(StatutFacture etat);
     Flux<FactureResponse> getFacturesByOrganizationId(UUID organizationId);
     Flux<FactureResponse> getFacturesByAgencyId(UUID agencyId);
+    Flux<FactureResponse> getFacturesBySellerId(UUID sellerId);
+    Mono<Void> sendToPortal(UUID factureId);
 }

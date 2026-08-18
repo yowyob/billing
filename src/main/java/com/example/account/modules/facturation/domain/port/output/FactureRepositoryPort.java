@@ -7,9 +7,13 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Map;
 import java.util.UUID;
 
 public interface FactureRepositoryPort {
+    Mono<Map<String, Object>> getAccountingSaleFacture(UUID factureId);
+    Mono<Map<String, Object>> getAccountingPurchaseFacture(UUID factureId);
+
     Mono<Facture> findById(UUID id);
     Mono<Facture> findByNumeroFacture(String numeroFacture);
     Flux<Facture> findByIdClient(UUID idClient);
@@ -34,6 +38,7 @@ public interface FactureRepositoryPort {
     Mono<Boolean> existsByNumeroFacture(String numeroFacture);
     Flux<Facture> findByOrganizationId(UUID organizationId);
     Flux<Facture> findByAgencyId(UUID agencyId);
+    Flux<Facture> findByCreatedBy(UUID createdBy);
     Mono<Facture> save(Facture facture);
     Mono<Facture> insert(Facture facture);
     Mono<Void> deleteById(UUID id);
