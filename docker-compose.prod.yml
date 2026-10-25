@@ -2,12 +2,25 @@
 # Auth via kernel (client billing-backend, clé cote serveur). Kafka mutualisé. Postgres prive.
 services:
   billing-backend:
+    # Plafond memoire (29/09/2026). Ce conteneur tournait sans aucune limite : face aux 47 Go de
+    # la machine, la JVM dimensionnait son tas sur la memoire de l'HOTE et non sur ce qu'on lui
+    # accorde. La machine ne manque pas de CPU — 77 % d'inactivite — mais de memoire : 12,6 Go de
+    # swap occupes sur 16, et c'est cette pagination qui gonfle la charge, pas le calcul.
+    # Observe avant plafond : 1,10 Gio.
+    #
+    # MaxRAMPercentage va AVEC la limite : sans lui, la JVM vise les 47 Go et se ferait tuer par le
+    # noyau au lieu de declencher sa ramasse-miettes a temps.
+    mem_limit: 2g
+    mem_reservation: 1g
     image: "${APP_IMAGE:?APP_IMAGE requis}"
     container_name: billing-backend
     pull_policy: always
     restart: unless-stopped
     env_file: [.env]
     environment:
+      # Va AVEC mem_limit : sans lui la JVM vise la memoire de l'HOTE (47 Go) et se ferait
+      # tuer par le noyau au lieu de declencher sa ramasse-miettes a temps.
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70 -XX:InitialRAMPercentage=30"
       SPRING_PROFILES_ACTIVE: "prod"
       SERVER_PORT: "8080"
       SERVER_FORWARD_HEADERS_STRATEGY: "framework"
