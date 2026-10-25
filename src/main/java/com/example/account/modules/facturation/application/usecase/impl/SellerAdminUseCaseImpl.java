@@ -11,6 +11,7 @@ import com.example.account.modules.facturation.dto.request.UpdateSellerPermissio
 import com.example.account.modules.facturation.dto.request.UpdateSellerPhotoRequest;
 import com.example.account.modules.facturation.dto.response.ExternalResponses.AssignAgencyResponse;
 import com.example.account.modules.facturation.dto.response.ExternalResponses.CreateSellerResponse;
+import com.example.account.modules.facturation.dto.response.ExternalResponses.OrganizationEmployeeResponse;
 import com.example.account.modules.facturation.dto.response.ExternalResponses.SellerListItemResponse;
 import com.example.account.modules.facturation.dto.response.ExternalResponses.SellerUIPermissionsResponse;
 import com.example.account.modules.facturation.model.entity.SellerAgencyAssignment;
@@ -20,10 +21,16 @@ import com.example.account.modules.facturation.repository.SellerAuthContextRepos
 import com.example.account.modules.notification.dto.SendSellerInvitationEmailRequest;
 import com.example.account.modules.notification.service.SellerEmailService;
 import com.example.account.modules.shared.dto.kernel.KernelAgencyResponse;
+import com.example.account.modules.shared.dto.kernel.KernelApiResponse;
+import com.example.account.modules.shared.dto.kernel.KernelEmployeeMembershipResponse;
+import com.example.account.modules.shared.dto.kernel.KernelInviteEmployeeRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 import reactor.core.publisher.Flux;
@@ -48,6 +55,12 @@ public class SellerAdminUseCaseImpl implements SellerAdminUseCase {
     private final AgencyServicePort agencyServicePort;
     private final SellerAgencyAssignmentRepository sellerAgencyAssignmentRepository;
     private final SellerAuthContextRepository sellerAuthContextRepository;
+
+    @Qualifier("kernelWebClient")
+    private final WebClient kernelWebClient;
+
+    private static final ParameterizedTypeReference<KernelApiResponse<List<KernelEmployeeMembershipResponse>>> KERNEL_EMPLOYEE_LIST_TYPE =
+            new ParameterizedTypeReference<>() {};
 
     /**
      * sales-core has no concept of the POS quick-login PIN at all — it's
@@ -86,30 +99,131 @@ public class SellerAdminUseCaseImpl implements SellerAdminUseCase {
 
     private void applyAuthContext(SellerListItemResponse seller, SellerAuthContext authContext) {
         if (authContext == null) {
+            seller.setStatus("ACTIVE");
             return;
         }
         seller.setPin(authContext.getPin());
+        seller.setStatus(authContext.getStatus() != null ? authContext.getStatus() : "ACTIVE");
     }
 
+    /**
+     * "Invite" flow: the person isn't a known Kernel employee yet. Invites them
+     * into the org via Kernel's own employee-invite (so they get a real Kernel
+     * account/accept-link), creates the local seller record, and leaves the
+     * seller marked PENDING until they're a known employee again (listSellers
+     * will keep showing PENDING — nothing currently flips it to ACTIVE
+     * automatically since Billing has no webhook for Kernel invite-acceptance).
+     * The Kernel invite is best-effort: if it fails (e.g. this email already
+     * has a Kernel account from some other org), the seller is still created
+     * so this never blocks on a step the admin can't see or retry from here.
+     */
     @Override
     public Mono<CreateSellerResponse> createSeller(CreateSellerRequest request) {
-        return sellerServicePort.createSeller(request)
+        fillDerivedFieldsFromEmail(request);
+        return inviteKernelEmployee(request)
+                .then(sellerServicePort.createSeller(request))
                 .flatMap(response -> {
                     String pin = generatePin();
                     response.setPin(pin);
-                    return saveAuthContext(response.getId(), request.getOrganizationId(), pin)
+                    return saveAuthContext(response.getId(), request.getOrganizationId(), pin, "PENDING")
                             .then(sendInvitation(request, response, pin))
                             .thenReturn(response);
                 });
     }
 
-    private Mono<SellerAuthContext> saveAuthContext(UUID sellerId, UUID organizationId, String pin) {
+    /**
+     * "Add from employee" flow: the person is already a known Kernel org
+     * employee (picked from listOrganizationEmployees), so no Kernel invite is
+     * needed — they already have working Kernel credentials. Just creates the
+     * local seller record and marks it ACTIVE immediately. No credentials
+     * email is sent since nothing new was provisioned for them to log in with.
+     */
+    @Override
+    public Mono<CreateSellerResponse> createSellerFromEmployee(CreateSellerRequest request) {
+        return sellerServicePort.createSeller(request)
+                .flatMap(response -> {
+                    String pin = generatePin();
+                    response.setPin(pin);
+                    return saveAuthContext(response.getId(), request.getOrganizationId(), pin, "ACTIVE")
+                            .thenReturn(response);
+                });
+    }
+
+    /**
+     * organizationId query param is required by Kernel even though the caller's
+     * own token already scopes it (matches the pattern already used for
+     * agencies and employee-roster lookups elsewhere in this class). Best-effort:
+     * failures are logged and swallowed so a missing/duplicate Kernel account
+     * never blocks local seller creation.
+     */
+    private Mono<Void> inviteKernelEmployee(CreateSellerRequest request) {
+        KernelInviteEmployeeRequest invite = new KernelInviteEmployeeRequest();
+        invite.setEmail(request.getEmail());
+        invite.setFirstName(request.getFirstName());
+        invite.setLastName(request.getLastName());
+        invite.setUsername(request.getUsername());
+        return kernelWebClient.post()
+                .uri(uriBuilder -> uriBuilder.path("/api/employees/invite")
+                        .queryParam("organizationId", request.getOrganizationId())
+                        .build())
+                .bodyValue(invite)
+                .retrieve()
+                .bodyToMono(String.class)
+                .then()
+                .onErrorResume(e -> {
+                    log.warn("Kernel employee invite failed for {} (continuing with local seller creation anyway): {}",
+                            request.getEmail(), e.getMessage());
+                    return Mono.empty();
+                });
+    }
+
+    /**
+     * Source for the "add from employee" picker: this org's Kernel employee
+     * roster, flagged with whether each person already has a seller record
+     * here (cross-referenced by email, since seller and employee records
+     * don't share a common id).
+     */
+    @Override
+    public Flux<OrganizationEmployeeResponse> listOrganizationEmployees(UUID organizationId) {
+        return sellerServicePort.listSellers(organizationId)
+                .map(seller -> seller.getEmail() == null ? "" : seller.getEmail().trim().toLowerCase())
+                .collect(java.util.stream.Collectors.toSet())
+                .flatMapMany(sellerEmails -> fetchOrgEmployees(organizationId)
+                        .map(employee -> toOrganizationEmployeeResponse(employee, sellerEmails)));
+    }
+
+    private OrganizationEmployeeResponse toOrganizationEmployeeResponse(KernelEmployeeMembershipResponse employee, java.util.Set<String> sellerEmails) {
+        OrganizationEmployeeResponse response = new OrganizationEmployeeResponse();
+        response.setId(employee.getId());
+        response.setFirstName(employee.getFirstName());
+        response.setLastName(employee.getLastName());
+        response.setEmail(employee.getEmail());
+        response.setStatus(employee.getStatus());
+        boolean alreadySeller = employee.getEmail() != null
+                && sellerEmails.contains(employee.getEmail().trim().toLowerCase());
+        response.setAlreadySeller(alreadySeller);
+        return response;
+    }
+
+    private Flux<KernelEmployeeMembershipResponse> fetchOrgEmployees(UUID organizationId) {
+        return kernelWebClient.get()
+                .uri(uriBuilder -> uriBuilder.path("/api/employees")
+                        .queryParam("organizationId", organizationId)
+                        .build())
+                .retrieve()
+                .bodyToMono(KERNEL_EMPLOYEE_LIST_TYPE)
+                .map(KernelApiResponse::getData)
+                .flatMapMany(Flux::fromIterable);
+    }
+
+    private Mono<SellerAuthContext> saveAuthContext(UUID sellerId, UUID organizationId, String pin, String status) {
         LocalDateTime now = LocalDateTime.now();
         SellerAuthContext context = SellerAuthContext.builder()
                 .id(UUID.randomUUID())
                 .sellerId(sellerId)
                 .organizationId(organizationId)
                 .pin(pin)
+                .status(status)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
@@ -117,22 +231,82 @@ public class SellerAdminUseCaseImpl implements SellerAdminUseCase {
     }
 
     private Mono<Void> sendInvitation(CreateSellerRequest request, CreateSellerResponse response, String pin) {
-        SendSellerInvitationEmailRequest invitation = new SendSellerInvitationEmailRequest();
-        invitation.setOrganizationId(request.getOrganizationId());
-        invitation.setEmail(request.getEmail());
-        invitation.setUsername(response.getUsername());
-        invitation.setRole(response.getRole());
-        invitation.setAgency(request.getAgency());
-        invitation.setPin(pin);
-        return sellerEmailService.sendInvitation(invitation)
+        return resolveRealInvitationEmail(request)
+                .flatMap(realEmail -> {
+                    SendSellerInvitationEmailRequest invitation = new SendSellerInvitationEmailRequest();
+                    invitation.setOrganizationId(request.getOrganizationId());
+                    invitation.setEmail(realEmail);
+                    invitation.setUsername(response.getUsername());
+                    invitation.setRole(response.getRole());
+                    invitation.setAgency(request.getAgency());
+                    invitation.setPin(pin);
+                    return sellerEmailService.sendInvitation(invitation);
+                })
                 .onErrorResume(e -> {
                     log.error("Failed to send seller invitation email to {}: {}", request.getEmail(), e.getMessage());
                     return Mono.empty();
                 });
     }
 
+    /**
+     * request.getEmail() is whatever login identity the caller typed (e.g.
+     * Kernel's own login alias) — it's what has to match on future normal
+     * logins for the PIN flow to link up, but it's often not a real inbox the
+     * person actually checks. Kernel's own organization-employee roster
+     * carries their real profile email separately (seen live: an employee
+     * invited/logged in as "nchang@yowyob.com" has employee-record email
+     * "nchangfruroy@gmail.com"). Matches by name since the seller/employee
+     * records don't share a common id; falls back to request.getEmail() if
+     * no employee record matches, so this never blocks seller creation.
+     */
+    private Mono<String> resolveRealInvitationEmail(CreateSellerRequest request) {
+        if (request.getFirstName() == null && request.getLastName() == null) {
+            return Mono.just(request.getEmail());
+        }
+        return fetchOrgEmployees(request.getOrganizationId())
+                .filter(employee -> namesMatch(request, employee))
+                .next()
+                .map(KernelEmployeeMembershipResponse::getEmail)
+                .switchIfEmpty(Mono.just(request.getEmail()))
+                .onErrorResume(e -> {
+                    log.warn("Failed to resolve real employee email for {} {}, falling back to {}: {}",
+                            request.getFirstName(), request.getLastName(), request.getEmail(), e.getMessage());
+                    return Mono.just(request.getEmail());
+                });
+    }
+
+    private boolean namesMatch(CreateSellerRequest request, KernelEmployeeMembershipResponse employee) {
+        return equalsIgnoreCaseTrim(request.getFirstName(), employee.getFirstName())
+                && equalsIgnoreCaseTrim(request.getLastName(), employee.getLastName());
+    }
+
+    private boolean equalsIgnoreCaseTrim(String a, String b) {
+        return a != null && b != null && a.trim().equalsIgnoreCase(b.trim());
+    }
+
     private String generatePin() {
         return String.format("%05d", PIN_RANDOM.nextInt(100_000));
+    }
+
+    /**
+     * Invite flow only collects email + role now — username/firstName/lastName
+     * are derived from the email's local part so sales-core's CreateSellerRequest
+     * (and Kernel's own invite) still get something to work with. The person's
+     * real name, if any, comes back once they accept the Kernel invite and fill
+     * in their profile; this is just a placeholder until then.
+     */
+    private void fillDerivedFieldsFromEmail(CreateSellerRequest request) {
+        String localPart = request.getEmail() == null ? "" : request.getEmail().split("@")[0];
+        String slug = localPart.replaceAll("[^A-Za-z0-9._-]", "");
+        if (request.getUsername() == null || request.getUsername().isBlank()) {
+            request.setUsername(slug);
+        }
+        if (request.getFirstName() == null || request.getFirstName().isBlank()) {
+            request.setFirstName(slug.isEmpty() ? "Seller" : slug.substring(0, 1).toUpperCase() + slug.substring(1));
+        }
+        if (request.getLastName() == null || request.getLastName().isBlank()) {
+            request.setLastName("");
+        }
     }
 
     /**
@@ -207,6 +381,44 @@ public class SellerAdminUseCaseImpl implements SellerAdminUseCase {
         response.setAgencyCity(assignment.getAgencyCity());
         response.setAgencyAddress(assignment.getAgencyAddress());
         return response;
+    }
+
+    @Override
+    public Mono<AssignAgencyResponse> getAgencyForSeller(UUID sellerId) {
+        return sellerAgencyAssignmentRepository.findBySellerId(sellerId)
+                .map(assignment -> toAssignAgencyResponse(sellerId, assignment))
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No agency assigned to seller: " + sellerId)));
+    }
+
+    @Override
+    public Flux<AssignAgencyResponse> listAgencyAssignments(UUID organizationId) {
+        return sellerAgencyAssignmentRepository.findByOrganizationId(organizationId)
+                .map(assignment -> toAssignAgencyResponse(assignment.getSellerId(), assignment));
+    }
+
+    /**
+     * Same join pattern as getCustomersForSeller/getProducersForSeller
+     * (assignment ids -> fetch full entities), but via sellerServicePort.
+     * listSellers rather than a per-id getById call: assignAgency's own
+     * comment above flags GET /api/sellers/{id} as broken (405) on the live
+     * sales-core deployment, and listSellers is already proven reliable.
+     */
+    @Override
+    public Flux<SellerListItemResponse> getSellersForAgency(UUID agencyId, UUID organizationId) {
+        return sellerAgencyAssignmentRepository.findByAgencyId(agencyId)
+                .map(SellerAgencyAssignment::getSellerId)
+                .collectList()
+                .flatMapMany(sellerIds -> sellerServicePort.listSellers(organizationId)
+                        .filter(seller -> sellerIds.contains(seller.getId())));
+    }
+
+    @Override
+    public Mono<Void> unassignAgency(UUID sellerId) {
+        return sellerAgencyAssignmentRepository.findBySellerId(sellerId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No agency assigned to seller: " + sellerId)))
+                .flatMap(sellerAgencyAssignmentRepository::delete);
     }
 
     @Override
