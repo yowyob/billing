@@ -40,6 +40,13 @@ services:
       # Spring les résout depuis ces variables (liaison souple . et - → _).
       COMOPS_KERNEL_API_KEY: "${BILLING_KERNEL_API_KEY:?BILLING_KERNEL_API_KEY requis}"
       COMOPS_KERNEL_TENANT_ID: "11111111-1111-1111-1111-111111111111"
+      # Le code du 24/10 donne a Liquibase sa PROPRE adresse (SPRING_DATASOURCE_URL, defaut
+      # localhost:5432) : sans ces trois lignes, les migrations visent le conteneur lui-meme.
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://billing-db:5432/billing"
+      SPRING_DATASOURCE_USERNAME: "billing"
+      SPRING_DATASOURCE_PASSWORD: "${BILLING_DB_PASSWORD:?BILLING_DB_PASSWORD requis}"
+      # Lien des invitations vendeur (defaut localhost:3000 jusqu ici).
+      SELLER_LOGIN_URL: "https://billing.yowyob.com/login"
     healthcheck:
       test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:8080/actuator/health || exit 1"]
       interval: 20s
