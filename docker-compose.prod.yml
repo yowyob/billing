@@ -47,6 +47,17 @@ services:
       SPRING_DATASOURCE_PASSWORD: "${BILLING_DB_PASSWORD:?BILLING_DB_PASSWORD requis}"
       # Lien des invitations vendeur (defaut localhost:3000 jusqu ici).
       SELLER_LOGIN_URL: "https://billing.yowyob.com/login"
+      SPRING_R2DBC_URL: "r2dbc:postgresql://billing-db:5432/billing"
+      SPRING_R2DBC_USERNAME: "billing"
+      SPRING_R2DBC_PASSWORD: "${BILLING_DB_PASSWORD:?BILLING_DB_PASSWORD requis}"
+      CLIENT_PORTAL_FRONTEND_URL: "https://billing.yowyob.com"
+      CLIENT_PORTAL_LOGIN_URL: "https://billing.yowyob.com/client-portal/login"
+      # Le .env colle tel quel par le dev porte ses propres noms : on les transmet au code.
+      # (environment: l emporte sur env_file, donc les valeurs locales du dev ci-dessus
+      # - localhost, Vercel, client demo - ne s appliquent pas.)
+      COMOPS_KERNEL_NOTIFICATION_API_KEY: "${KERNEL_NOTIFICATION_API_KEY:-}"
+      COMOPS_KERNEL_SERVICE_ACCOUNT_USERNAME: "${KERNEL_SERVICE_USERNAME:-}"
+      COMOPS_KERNEL_SERVICE_ACCOUNT_PASSWORD: "${KERNEL_SERVICE_PASSWORD:-}"
     healthcheck:
       test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:8080/actuator/health || exit 1"]
       interval: 20s
