@@ -55,9 +55,8 @@ services:
       # Le .env colle tel quel par le dev porte ses propres noms : on les transmet au code.
       # (environment: l emporte sur env_file, donc les valeurs locales du dev ci-dessus
       # - localhost, Vercel, client demo - ne s appliquent pas.)
-      # Client de notification = billing-backend : meme cle que le client principal. La cle
-      # KERNEL_NOTIFICATION_API_KEY du .env du dev est refusee par le noyau (401, verifie le 25/10).
-      COMOPS_KERNEL_NOTIFICATION_API_KEY: "${BILLING_KERNEL_API_KEY:?BILLING_KERNEL_API_KEY requis}"
+      # Client de notification : celui du .env (KERNEL_NOTIFICATION_CLIENT_ID + sa cle).
+      COMOPS_KERNEL_NOTIFICATION_API_KEY: "${KERNEL_NOTIFICATION_API_KEY:?KERNEL_NOTIFICATION_API_KEY requis dans .env}"
       COMOPS_KERNEL_SERVICE_ACCOUNT_USERNAME: "${KERNEL_SERVICE_USERNAME:-}"
       COMOPS_KERNEL_SERVICE_ACCOUNT_PASSWORD: "${KERNEL_SERVICE_PASSWORD:-}"
     healthcheck:
