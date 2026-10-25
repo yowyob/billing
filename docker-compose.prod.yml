@@ -36,6 +36,10 @@ services:
       KERNEL_CLIENT_ID: "billing-backend"
       KERNEL_API_KEY: "${BILLING_KERNEL_API_KEY:?BILLING_KERNEL_API_KEY requis dans .env}"
       KERNEL_TENANT_ID: "11111111-1111-1111-1111-111111111111"
+      # Le code du 24/10 lit comops.kernel.api-key / tenant-id sans défaut ni liaison :
+      # Spring les résout depuis ces variables (liaison souple . et - → _).
+      COMOPS_KERNEL_API_KEY: "${BILLING_KERNEL_API_KEY:?BILLING_KERNEL_API_KEY requis}"
+      COMOPS_KERNEL_TENANT_ID: "11111111-1111-1111-1111-111111111111"
     healthcheck:
       test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:8080/actuator/health || exit 1"]
       interval: 20s
